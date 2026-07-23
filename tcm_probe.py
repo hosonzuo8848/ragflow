@@ -123,7 +123,9 @@ def main():
         d0 = docs[0] if docs else {}
         run = d0.get("run")
         progress = d0.get("progress")
-        print("poll %d: run=%s progress=%s" % (i, run, progress), flush=True)
+        progress_msg = d0.get("progress_msg")
+        print("poll %d: run=%s progress=%s msg=%s" % (i, run, progress, progress_msg), flush=True)
+        print("poll %d full doc record: %s" % (i, json.dumps(d0, ensure_ascii=False)), flush=True)
         if str(run) in ("3", "DONE", "done"):
             done = True
             break
