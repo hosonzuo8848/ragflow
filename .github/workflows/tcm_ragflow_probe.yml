@@ -1,0 +1,87 @@
+name: TCM RAGFlow real-run probe
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: tcm-ragflow-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free RAM/disk baseline
+        run: |
+          free -h
+          df -h
+          docker --version
+          docker compose version
+
+      - name: Force DOC_ENGINE=infinity in docker/.env
+        run: |
+          sed -i 's/^DOC_ENGINE=.*/DOC_ENGINE=infinity/' docker/.env
+          grep -E '^DOC_ENGINE=|^DEVICE=|^COMPOSE_PROFILES=' docker/.env
+
+      - name: docker compose up (mysql+minio+redis+infinity+ragflow-cpu)
+        working-directory: docker
+        run: |
+          docker compose -f docker-compose.yml --env-file .env up -d
+          sleep 5
+          docker compose -f docker-compose.yml ps
+
+      - name: Wait for containers + capture real memory/health evidence
+        working-directory: docker
+        run: |
+          for i in $(seq 1 40); do
+            echo "--- check $i ---"
+            docker compose -f docker-compose.yml ps
+            free -h
+            if curl -sf http://localhost:9380/api/v1/system/ping >/dev/null 2>&1; then
+              echo "RAGFLOW API IS UP"
+              break
+            fi
+            sleep 15
+          done
+          echo "=== final docker ps ==="
+          docker compose -f docker-compose.yml ps -a
+          echo "=== docker stats snapshot ==="
+          docker stats --no-stream || true
+          echo "=== ragflow-cpu logs (tail) ==="
+          docker compose -f docker-compose.yml logs --tail=150 ragflow-cpu || true
+
+      - name: Ping RAGFlow API (real liveness evidence)
+        run: |
+          curl -sv http://localhost:9380/api/v1/system/ping || true
+          curl -sv http://localhost:9380/api/v1/system/version || true
+
+      - name: Set up Python for the probe client
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install probe client deps (client-side only, not RAGFlow's own deps)
+        run: pip install requests pycryptodomex
+
+      - name: Run real end-to-end probe (register -> embed provider -> dataset -> parse -> search 桂枝汤)
+        env:
+          XF_EMBED_KEY: ${{ secrets.XF_EMBED_KEY }}
+        run: python tcm_probe.py "$PWD/conf/public.pem"
+
+      - name: Dump logs on failure
+        if: failure()
+        working-directory: docker
+        run: |
+          docker compose -f docker-compose.yml ps -a
+          docker compose -f docker-compose.yml logs --tail=400 ragflow-cpu || true
+          docker compose -f docker-compose.yml logs --tail=200 mysql || true
+          docker compose -f docker-compose.yml logs --tail=200 infinity || true
+          free -h
+
+      - name: Teardown
+        if: always()
+        working-directory: docker
+        run: docker compose -f docker-compose.yml down -v || true
