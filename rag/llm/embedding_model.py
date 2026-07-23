@@ -15,6 +15,7 @@
 #
 import json
 import os
+import re
 import threading
 from abc import ABC
 from contextlib import contextmanager
@@ -851,7 +852,13 @@ class OpenAI_APIEmbed(OpenAIEmbed):
     def __init__(self, key, model_name, base_url):
         if not base_url:
             raise ValueError("url cannot be None")
-        base_url = urljoin(base_url, "v1")
+        # Some OpenAI-compatible gateways (e.g. iFlytek/XunFei MaaS) use a vendor-specific
+        # version segment other than "v1" (their real endpoint is .../v2/embeddings).
+        # urljoin(base_url, "v1") would silently force-rewrite that segment to "v1" and
+        # break auth against such gateways. If the caller already supplied a base_url
+        # ending in an explicit vN segment, honor it as-is instead of coercing to v1.
+        if not re.search(r"/v\d+/?$", base_url):
+            base_url = urljoin(base_url, "v1")
         self.client = OpenAI(api_key=key, base_url=base_url)
         self.model_name = model_name.split("___")[0]
 

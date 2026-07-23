@@ -44,6 +44,10 @@ services:
       # - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./service_conf.yaml.template:/ragflow/conf/service_conf.yaml.template
       - ./entrypoint.sh:/ragflow/entrypoint.sh
+      # Fork-local fix: OpenAI_APIEmbed hardcodes a "v1" path segment via urljoin(),
+      # which breaks vendor gateways whose real endpoint uses a different version
+      # segment (e.g. XunFei MaaS /v2/embeddings). See rag/llm/embedding_model.py diff.
+      - ../rag/llm/embedding_model.py:/ragflow/rag/llm/embedding_model.py:ro
     env_file: .env
     networks:
       - ragflow
