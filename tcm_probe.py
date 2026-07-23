@@ -64,21 +64,21 @@ def main():
     r = s.put(BASE + "/providers", json={"provider_name": "OpenAI-API-Compatible"}, headers=hdr)
     show(r)
 
-    step("create provider instance (xfyun embedding gateway)")
+    step("create provider instance (xfyun embedding gateway) WITH model_info so verify_api_key has a model to test")
     r = s.post(BASE + "/providers/OpenAI-API-Compatible/instances", json={
         "instance_name": "xfyun",
         "api_key": xf_key,
         "base_url": xf_base,
+        "model_info": [{
+            "model_type": ["embedding"],
+            "model_name": xf_embed_model,
+            "max_tokens": 8192,
+        }],
     }, headers=hdr)
     show(r)
-
-    step("register embedding model on instance")
-    r = s.post(BASE + "/providers/OpenAI-API-Compatible/instances/xfyun/models", json={
-        "model_name": xf_embed_model,
-        "model_type": "embedding",
-        "max_tokens": 8192,
-    }, headers=hdr)
-    show(r)
+    if r.json().get("code") != 0:
+        print("!!! provider instance creation FAILED, aborting early with clear reason !!!", flush=True)
+        sys.exit(1)
 
     step("set tenant default embedding model")
     r = s.patch(BASE + "/models/default", json={
@@ -88,6 +88,9 @@ def main():
         "model_type": "embedding",
     }, headers=hdr)
     show(r)
+    if r.json().get("code") != 0:
+        print("!!! set default embedding model FAILED, aborting early with clear reason !!!", flush=True)
+        sys.exit(1)
 
     step("create dataset")
     r = s.post(BASE + "/datasets", json={"name": "tcm_probe_ds", "chunk_method": "naive"}, headers=hdr)
